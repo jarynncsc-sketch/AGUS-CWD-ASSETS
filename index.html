@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGUS · Asset Inventory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+  // Applied immediately (before body paints) to avoid a flash of the wrong theme.
+  (function(){
+    try {
+      const saved = localStorage.getItem('agus-theme');
+      const theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    } catch (e) { /* localStorage unavailable — default to light */ }
+  })();
+</script>
+<style>
+  :root{
+    --bg:#f4f9fa;
+    --bg-panel:#ffffff;
+    --bg-card:#ffffff;
+    --bg-card-hover:#ecf6f7;
+    --border:#d3e6e7;
+    --border-soft:#e6f0f1;
+    --text:#10343c;
+    --text-muted:#57777d;
+    --text-faint:#8fafb5;
+    --teal:#0a7f93;
+    --teal-dim:#dceff3;
+    --amber:#c9821e;
+    --amber-dim:#f9eed8;
+    --red:#c8443f;
+    --red-dim:#fbe6e5;
+    --blue:#2e7da6;
+    --blue-dim:#e1eef4;
+    --radius:10px;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --sans:'IBM Plex Sans', system-ui, sans-serif;
+    --display:'Space Grotesk', 'IBM Plex Sans', sans-serif;
+    --topbar-bg:rgba(255,255,255,0.85);
+    --chart-border:#ffffff;
+    color-scheme: light;
+  }
+  html[data-theme="dark"]{
+    --bg:#0b1416;
+    --bg-panel:#101c1f;
+    --bg-card:#132226;
+    --bg-card-hover:#17282c;
+    --border:#233a3f;
+    --border-soft:#1b2e32;
+    --text:#e6f2f3;
+    --text-muted:#9db8bc;
+    --text-faint:#5f7d82;
+    --teal:#2fc4d8;
+    --teal-dim:#13343c;
+    --amber:#e0a742;
+    --amber-dim:#3a2f16;
+    --red:#e56c66;
+    --red-dim:#3a1c1c;
+    --blue:#5fa8d6;
+    --blue-dim:#152836;
+    --topbar-bg:rgba(16,28,31,0.85);
+    --chart-border:#132226;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(10,127,147,0.05), transparent 45%),
+      radial-gradient(circle at 85% 15%, rgba(46,125,166,0.04), transparent 50%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    transition:background-color .15s,color .15s;
+  }
+  html[data-theme="dark"] body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(47,196,216,0.06), transparent 45%),
+      radial-gradient(circle at 85% 15%, rgba(95,168,214,0.05), transparent 50%),
+      var(--bg);
+  }
+  .theme-toggle{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:32px;height:32px;border-radius:7px;border:1px solid var(--border);
+    background:var(--bg-card);color:var(--text-muted);flex-shrink:0;
+    font-size:16px;line-height:1;
+    transition:all .15s;
+  }
+  .theme-toggle:hover{color:var(--teal);border-color:var(--teal);}
+  .theme-toggle .icon-sun{display:none;}
+  .theme-toggle .icon-moon{display:inline;}
+  html[data-theme="dark"] .theme-toggle .icon-moon{display:none;}
+  html[data-theme="dark"] .theme-toggle .icon-sun{display:inline;}
+  .login-theme-toggle{position:absolute;top:16px;right:16px;}
+  ::selection{background:var(--teal-dim);color:var(--text);}
+  button{font-family:var(--sans);cursor:pointer;}
+  input,select,textarea{font-family:var(--sans);}
+  a{color:var(--teal);}
+
+  /* ---------- utility ---------- */
+  .hidden{display:none !important;}
+  .mono{font-family:var(--mono);}
+  .scrollbar::-webkit-scrollbar{width:8px;height:8px;}
+  .scrollbar::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+  .scrollbar::-webkit-scrollbar-track{background:transparent;}
+
+  /* ---------- login ---------- */
+  #loginScreen{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:24px;
+  }
+  .login-card{
+    width:100%;max-width:380px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:36px 32px;
+    position:relative;
+    overflow:hidden;
+    box-shadow:0 8px 30px rgba(10,127,147,0.08);
+  }
+  .login-card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,var(--teal),var(--blue));
+  }
+  .login-eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--teal);
+    text-transform:uppercase;margin-bottom:8px;
+  }
+  .login-card h1{
+    font-family:var(--display);font-size:24px;margin:0 0 4px;font-weight:600;
+  }
+  .login-card p.sub{color:var(--text-muted);font-size:13px;margin:0 0 28px;line-height:1.5;}
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;letter-spacing:.02em;}
+  .field input{
+    width:100%;padding:11px 12px;background:var(--bg-card);border:1px solid var(--border);
+    border-radius:7px;color:var(--text);font-size:14px;outline:none;transition:border-color .15s;
+  }
+  .field input:focus{border-color:var(--teal);}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:11px 18px;border-radius:7px;border:1px solid transparent;
+    font-size:13.5px;font-weight:600;transition:all .15s;
+  }
+  .btn-primary{background:var(--teal);color:#ffffff;width:100%;}
+  .btn-primary:hover{background:#086b7c;}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-ghost{background:transparent;border-color:var(--border);color:var(--text-muted);}
+  .btn-ghost:hover{color:var(--text);border-color:var(--text-faint);}
+  .btn-danger{background:transparent;border-color:var(--red);color:var(--red);}
+  .btn-danger:hover{background:var(--red-dim);}
+  .login-error{
+    background:var(--red-dim);border:1px solid var(--red);color:#7a1f1f;
+    padding:9px 12px;border-radius:7px;font-size:12.5px;margin-top:14px;
+  }
+  .login-api{margin-top:22px;padding-top:18px;border-top:1px solid var(--border-soft);}
+
+  /* ---------- app shell ---------- */
+  #app{display:none;min-height:100vh;flex-direction:column;}
+  header.topbar{
+    display:flex;align-items:center;gap:20px;
+    padding:14px 24px;border-bottom:1px solid var(--border);
+    background:var(--topbar-bg);backdrop-filter:blur(6px);
+    box-shadow:0 1px 0 rgba(10,127,147,0.03);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;}
+  .brand-mark{
+    width:30px;height:30px;border-radius:7px;
+    background:linear-gradient(135deg,var(--teal),var(--blue));
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--display);font-weight:700;font-size:14px;color:#ffffff;
+  }
+  .brand-text{display:flex;flex-direction:column;line-height:1.1;}
+  .brand-text b{font-family:var(--display);font-size:15px;font-weight:600;}
+  .brand-text span{font-size:10.5px;color:var(--text-faint);letter-spacing:.08em;font-family:var(--mono);}
+
+  .search-box{
+    flex:1;max-width:420px;display:flex;align-items:center;gap:8px;
+    background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:8px 12px;
+  }
+  .search-box input{background:transparent;border:none;outline:none;color:var(--text);flex:1;font-size:13.5px;}
+  .search-box svg{flex-shrink:0;color:var(--text-faint);}
+
+  nav.topnav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}
+  .navbtn{
+    padding:8px 14px;border-radius:7px;border:1px solid transparent;background:transparent;
+    color:var(--text-muted);font-size:13px;font-weight:600;white-space:nowrap;
+  }
+  .navbtn:hover{color:var(--text);background:var(--bg-card);}
+  .navbtn.active{color:var(--teal);background:var(--teal-dim);}
+
+  main{flex:1;padding:24px;max-width:1400px;width:100%;margin:0 auto;}
+
+  /* ---------- charts ---------- */
+  .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:20px;}
+  .chart-card{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:0 1px 3px rgba(10,127,147,0.04);
+  }
+  .chart-card h4{
+    font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--text-faint);margin:0 0 12px;
+  }
+  .chart-wrap{position:relative;height:180px;}
+  .chart-wrap.tall{height:240px;}
+
+  /* ---------- users ---------- */
+  .users-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .role-pill{
+    font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .role-pill.admin{color:var(--teal);background:var(--teal-dim);}
+  .role-pill.viewer{color:var(--blue);background:var(--blue-dim);}
+  .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;}
+  .status-dot.on{background:#2f9e6f;}
+  .status-dot.off{background:var(--text-faint);}
+
+  /* ---------- chip row ---------- */
+  .chiprow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;}
+  .chip{
+    padding:6px 13px;border-radius:99px;border:1px solid var(--border);background:var(--bg-card);
+    font-size:12.5px;color:var(--text-muted);font-weight:600;display:flex;align-items:center;gap:6px;
+  }
+  .chip.active{border-color:var(--teal);color:var(--teal);background:var(--teal-dim);}
+  .chip:hover{border-color:var(--text-faint);}
+  .chip .count{font-family:var(--mono);opacity:.7;}
+
+  /* ---------- asset grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+  .asset-card{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px 18px;cursor:pointer;transition:all .15s;position:relative;overflow:hidden;
+    box-shadow:0 1px 3px rgba(10,127,147,0.05);
+  }
+  .asset-card:hover{background:var(--bg-card-hover);border-color:var(--text-faint);transform:translateY(-1px);box-shadow:0 4px 12px rgba(10,127,147,0.08);}
+  .asset-card::before{
+    content:'';position:absolute;top:0;left:0;bottom:0;width:3px;background:var(--cat-color,var(--teal));
+  }
+  .asset-card .badge-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .badge{
+    font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:4px;
+    background:var(--teal-dim);color:var(--teal);border:1px solid var(--border-soft);
+  }
+  .asset-card h3{font-family:var(--display);font-size:15px;margin:0 0 4px;font-weight:600;line-height:1.3;}
+  .asset-card .cat{font-size:11.5px;color:var(--cat-color,var(--teal));font-weight:600;}
+
+  .empty-state{
+    text-align:center;padding:60px 20px;color:var(--text-faint);
+  }
+  .empty-state svg{margin-bottom:14px;opacity:.5;}
+  .empty-state h3{font-family:var(--display);color:var(--text-muted);font-size:16px;margin:0 0 6px;}
+  .empty-state p{font-size:13px;margin:0;}
+
+  /* ---------- asset detail ---------- */
+  .detail-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap;}
+  .back-link{
+    display:inline-flex;align-items:center;gap:6px;color:var(--text-muted);font-size:12.5px;
+    margin-bottom:12px;font-weight:600;background:none;border:none;padding:0;
+  }
+  .back-link:hover{color:var(--teal);}
+  .detail-title{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .detail-title h2{font-family:var(--display);font-size:24px;margin:0;font-weight:600;}
+
+  .tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;}
+  .tabbtn{
+    padding:10px 4px;margin-right:22px;background:none;border:none;color:var(--text-muted);
+    font-size:13.5px;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px;
+  }
+  .tabbtn.active{color:var(--teal);border-color:var(--teal);}
+
+  /* spec "data plate" sections */
+  .spec-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}
+  .spec-section{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;
+    box-shadow:0 1px 3px rgba(10,127,147,0.04);
+  }
+  .spec-section h4{
+    font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--teal);margin:0;padding:11px 16px;border-bottom:1px solid var(--border-soft);
+    background:var(--teal-dim);
+  }
+  .spec-row{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 16px;border-bottom:1px solid var(--border-soft);
+  }
+  .spec-row:last-child{border-bottom:none;}
+  .spec-row label{font-size:12.5px;color:var(--text-muted);flex-shrink:0;}
+  .spec-row .spec-value{
+    font-family:var(--mono);font-size:13px;color:var(--text);text-align:right;
+    background:transparent;border:1px solid transparent;border-radius:5px;padding:4px 8px;
+    outline:none;min-width:40%;transition:border-color .15s,background .15s;
+  }
+  .spec-row .spec-value:hover{background:var(--bg-panel);}
+  .spec-row .spec-value:focus{border-color:var(--amber);background:var(--bg-panel);}
+  .spec-row .spec-value.dirty{border-color:var(--amber);}
+  .spec-empty{color:var(--text-faint);font-size:12.5px;padding:20px;text-align:center;}
+
+  .save-bar{
+    position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:10px;padding:14px 0 4px;
+  }
+
+  /* ---------- log table ---------- */
+  .log-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap;}
+  .log-list{display:flex;flex-direction:column;gap:10px;}
+  .log-entry{
+    background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--type-color,var(--blue));
+    border-radius:8px;padding:14px 16px;cursor:pointer;transition:background .15s;
+  }
+  .log-entry:hover{background:var(--bg-card-hover);}
+  .log-entry .row1{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .log-entry .date{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600;}
+  .log-entry .type-badge{
+    font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:4px;
+    color:var(--type-color,var(--blue));background:var(--type-bg,var(--blue-dim));text-transform:uppercase;
+  }
+  .log-entry .report{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);margin-left:auto;}
+  .log-entry .details{font-size:13px;color:var(--text-muted);white-space:pre-line;line-height:1.5;}
+  .log-entry .readings{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;}
+  .reading-chip{font-family:var(--mono);font-size:11px;color:var(--text-faint);}
+  .reading-chip b{color:var(--text);}
+
+  /* ---------- modal ---------- */
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(5,10,18,0.7);backdrop-filter:blur(2px);
+    display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:100;overflow-y:auto;
+  }
+  .modal{
+    background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);
+    width:100%;max-width:640px;padding:26px 28px 22px;
+  }
+  .modal h3{font-family:var(--display);margin:0 0 18px;font-size:18px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .form-grid .span2{grid-column:1/-1;}
+  .form-grid label{display:block;font-size:11.5px;color:var(--text-muted);margin-bottom:5px;}
+  .form-grid input,.form-grid select,.form-grid textarea{
+    width:100%;padding:9px 10px;background:var(--bg-card);border:1px solid var(--border);
+    border-radius:6px;color:var(--text);font-size:13px;outline:none;
+  }
+  .form-grid input:focus,.form-grid select:focus,.form-grid textarea:focus{border-color:var(--teal);}
+  .form-grid textarea{resize:vertical;min-height:52px;font-family:var(--sans);}
+  .form-section-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--text-faint);margin:16px 0 8px;grid-column:1/-1;
+  }
+  .modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:22px;}
+
+  /* ---------- summary table ---------- */
+  .summary-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .summary-table th{
+    text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--text-faint);padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg-panel);
+  }
+  .summary-table td{padding:10px 12px;border-bottom:1px solid var(--border-soft);color:var(--text-muted);}
+  .summary-table tr:hover td{color:var(--text);}
+  .summary-row-link{cursor:pointer;}
+  .summary-row-link:hover td{background:var(--teal-dim);}
+  .summary-table td.src{color:var(--text);font-weight:600;}
+  .summary-table td.mono{font-family:var(--mono);font-size:12px;}
+
+  /* ---------- toast ---------- */
+  #toast{
+    position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;
+  }
+  .toast-item{
+    background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--teal);
+    padding:11px 16px;border-radius:7px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35);
+    animation:slideIn .2s ease;min-width:220px;
+  }
+  .toast-item.err{border-left-color:var(--red);}
+  @keyframes slideIn{from{opacity:0;transform:translateX(12px);}to{opacity:1;transform:translateX(0);}}
+
+  .spinner{
+    width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
+    border-top-color:currentColor;animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  #loadingOverlay{
+    position:fixed;inset:0;background:rgba(10,18,32,.6);display:flex;align-items:center;justify-content:center;
+    z-index:150;color:var(--teal);
+  }
+
+  @media (max-width:720px){
+    header.topbar{flex-wrap:wrap;padding:12px 16px;}
+    .search-box{order:3;max-width:none;width:100%;}
+    nav.topnav{margin-left:0;}
+    main{padding:16px;}
+    .form-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen">
+  <div class="login-card">
+    <button class="theme-toggle login-theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <span class="icon-moon">&#9789;</span>
+      <span class="icon-sun">&#9728;</span>
+    </button>
+    <div class="login-eyebrow">AGUS · CWD Utility Systems</div>
+    <h1>Asset Inventory</h1>
+    <p class="sub">History cards for every source — springs, pumping stations, boosters, and reservoirs. Sign in to view and edit records.</p>
+    <div class="field">
+      <label for="loginUsername">Username</label>
+      <input type="text" id="loginUsername" placeholder="e.g. admin" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn">Connect</button>
+    <div id="loginError" class="login-error hidden"></div>
+
+    <div class="login-api hidden" id="apiConfigBlock">
+      <div class="field" style="margin-bottom:0;">
+        <label for="apiUrlInput">Apps Script Web App URL</label>
+        <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/…/exec">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+  <header class="topbar">
+    <div class="brand" onclick="showAssetList()">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><b>Asset Inventory</b><span>AGUS · CWD</span></div>
+    </div>
+    <div class="search-box">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input type="text" id="searchInput" placeholder="Search assets…">
+    </div>
+    <nav class="topnav">
+      <button class="navbtn active" data-view="list" onclick="showAssetList()">Assets</button>
+      <button class="navbtn" data-view="summary" onclick="showSummary()">Summary</button>
+      <button class="navbtn hidden" id="usersNavBtn" data-view="users" onclick="showUsers()">Users</button>
+      <span id="whoami" class="mono" style="font-size:11.5px;color:var(--text-faint);align-self:center;padding:0 4px;"></span>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+        <span class="icon-moon">&#9789;</span>
+        <span class="icon-sun">&#9728;</span>
+      </button>
+      <button class="navbtn" onclick="logout()" style="color:var(--red);">Log out</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="viewList">
+      <div class="stats-row">
+        <div class="chart-card">
+          <h4>Assets by category</h4>
+          <div class="chart-wrap"><canvas id="categoryChart"></canvas></div>
+        </div>
+      </div>
+      <div class="chiprow" id="categoryChips"></div>
+      <div class="grid" id="assetGrid"></div>
+    </div>
+
+    <div id="viewDetail" class="hidden"></div>
+
+    <div id="viewSummary" class="hidden">
+      <div class="detail-title" style="margin-bottom:16px;"><h2>Pumps &amp; Controls Summary</h2></div>
+      <div class="tabbar">
+        <button class="tabbtn active" id="summarySubtabBrands" onclick="switchSummarySubtab('brands')">Brands &amp; Power</button>
+        <button class="tabbtn" id="summarySubtabLife" onclick="switchSummarySubtab('life')">Equipment Lifecycle</button>
+      </div>
+      <div id="summaryBrandsPanel">
+        <div class="chiprow" id="summaryCategoryChips"></div>
+        <div id="summaryGroups"></div>
+      </div>
+      <div id="summaryLifePanel" class="hidden"></div>
+    </div>
+
+    <div id="viewUsers" class="hidden"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===========================================================================
+// CONFIG
+// ===========================================================================
+let GAS_API_URL = localStorage.getItem('agus_inventory_api_url') || 'https://script.google.com/macros/s/AKfycbzeEeGTvZmJUOHpHLS0Zijgd7X1-JvdTTIymVwGW6R616dIjDlssJCVFx-gTJgfRr7P5A/exec';
+
+// ===========================================================================
+// STATE
+// ===========================================================================
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('agus-theme', next); } catch (e) { /* ignore */ }
+  // Re-draw any live charts so their border/legend colors pick up the new theme.
+  if (typeof refreshChartsForTheme === 'function') refreshChartsForTheme();
+}
+
+let state = {
+  token: sessionStorage.getItem('agus_inventory_token') || null,
+  username: sessionStorage.getItem('agus_inventory_username') || '',
+  role: sessionStorage.getItem('agus_inventory_role') || 'admin',
+  assets: [],
+  users: [],
+  summary: [],
+  lifeSummary: [],
+  summarySubtab: 'brands',
+  currentAsset: null,
+  currentTab: 'specs',
+  categoryFilter: 'All',
+  summaryCategoryFilter: 'All',
+  searchTerm: '',
+  lifeSheetFilled: false, // has the Equipment Summary tab been auto-written this session?
+  dirtySpecs: {} // "row-col" -> value
+};
+
+const CATEGORY_COLORS = {
+  'Springs': '#2e7da6',
+  'Pumping Stations': '#0a7f93',
+  'Boosters': '#c9821e',
+  'Reservoirs': '#6d54ab',
+  'Chlorine House': '#c8443f'
+};
+
+const TYPE_COLORS = {
+  'PREVENTIVE': { fg: '#0a7f93', bg: '#dceff3' },
+  'CORRECTIVE': { fg: '#c8443f', bg: '#fbe6e5' },
+  'OTHERS': { fg: '#2e7da6', bg: '#e1eef4' }
+};
+
+// ===========================================================================
+// API HELPERS
+// ===========================================================================
+async function apiGet(action, params) {
+  const url = new URL(GAS_API_URL);
+  url.searchParams.set('action', action);
+  url.searchParams.set('token', state.token || '');
+  for (const k in (params || {})) url.searchParams.set(k, params[k]);
+  const res = await fetch(url.toString());
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function apiPost(action, payload) {
+  // text/plain avoids a CORS preflight against the Apps Script exec endpoint.
+  const res = await fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action: action, token: state.token }, payload || {}))
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// ===========================================================================
+// TOAST
+// ===========================================================================
+function toast(msg, isErr) {
+  const el = document.createElement('div');
+  el.className = 'toast-item' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 3800);
+}
+
+// ===========================================================================
+// LOGIN
+// ===========================================================================
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// Reveal API URL field if not yet configured
+if (!GAS_API_URL || GAS_API_URL.indexOf('PASTE_YOUR') === 0) {
+  document.getElementById('apiConfigBlock').classList.remove('hidden');
+}
+
+async function doLogin() {
+  const apiInput = document.getElementById('apiUrlInput');
+  if (!document.getElementById('apiConfigBlock').classList.contains('hidden') && apiInput.value.trim()) {
+    GAS_API_URL = apiInput.value.trim();
+    localStorage.setItem('agus_inventory_api_url', GAS_API_URL);
+  }
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errBox = document.getElementById('loginError');
+  errBox.classList.add('hidden');
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Connecting…';
+
+  try {
+    const res = await fetch(GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'login', username: username, password: password })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Login failed');
+    state.token = data.token;
+    state.username = data.username;
+    state.role = data.role || 'admin';
+    sessionStorage.setItem('agus_inventory_token', data.token);
+    sessionStorage.setItem('agus_inventory_username', data.username);
+    sessionStorage.setItem('agus_inventory_role', state.role);
+    await bootApp();
+  } catch (err) {
+    errBox.textContent = err.message || 'Could not reach the server. Check the Apps Script URL.';
+    errBox.classList.remove('hidden');
+    document.getElementById('apiConfigBlock').classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Connect';
+  }
+}
+
+function logout() {
+  if (state.token) apiPost('logout').catch(() => {});
+  sessionStorage.removeItem('agus_inventory_token');
+  sessionStorage.removeItem('agus_inventory_username');
+  sessionStorage.removeItem('agus_inventory_role');
+  state.token = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+// keepalive: touch the session every 4 minutes so it doesn't expire mid-edit
+setInterval(() => { if (state.token) apiGet('ping').catch(() => {}); }, 4 * 60 * 1000);
+
+// ===========================================================================
+// BOOT
+// ===========================================================================
+async function bootApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('whoami').textContent =
+    state.username + (state.role === 'viewer' ? ' · view only' : '');
+  document.getElementById('usersNavBtn').classList.toggle('hidden', state.role !== 'admin');
+  try {
+    const data = await apiGet('assets');
+    state.assets = data.assets;
+    renderCategoryChips();
+    renderAssetGrid();
+    renderCategoryChart();
+  } catch (err) {
+    toast(err.message, true);
+    if (/session|auth/i.test(err.message)) logout();
+  }
+}
+
+if (state.token) bootApp();
+
+document.getElementById('searchInput').addEventListener('input', e => {
+  state.searchTerm = e.target.value.toLowerCase();
+  renderAssetGrid();
+});
+
+// ===========================================================================
+// VIEW SWITCHING
+// ===========================================================================
+function setActiveNav(view) {
+  document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+}
+
+function hideAllViews() {
+  ['viewList', 'viewDetail', 'viewSummary', 'viewUsers'].forEach(id => document.getElementById(id).classList.add('hidden'));
+}
+
+function showAssetList() {
+  hideAllViews();
+  document.getElementById('viewList').classList.remove('hidden');
+  setActiveNav('list');
+}
+
+async function showSummary() {
+  hideAllViews();
+  document.getElementById('viewSummary').classList.remove('hidden');
+  setActiveNav('summary');
+  if (state.role !== 'viewer' && !state.lifeSheetFilled) {
+    const btn = document.getElementById('refreshLifeSheetBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Updating…'; }
+    try {
+      const data = await apiPost('refreshLifeSheet');
+      state.lifeSheetFilled = true;
+      state.lifeSummary = [];
+      if (data.unmatched && data.unmatched.length) {
+        toast(`${data.unmatched.length} source${data.unmatched.length > 1 ? 's' : ''} on the summary tab had no matching history card — check the cell notes.`, true);
+      }
+    } catch (err) {
+      toast("Couldn't auto-update the summary tab: " + (err.message || err), true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Write to "Equipment Summary" sheet'; }
+    }
+  }
+  switchSummarySubtab(state.summarySubtab || 'brands');
+}
+
+function switchSummarySubtab(tab) {
+  state.summarySubtab = tab;
+  document.getElementById('summarySubtabBrands').classList.toggle('active', tab === 'brands');
+  document.getElementById('summarySubtabLife').classList.toggle('active', tab === 'life');
+  document.getElementById('summaryBrandsPanel').classList.toggle('hidden', tab !== 'brands');
+  document.getElementById('summaryLifePanel').classList.toggle('hidden', tab !== 'life');
+  if (tab === 'brands') loadSummaryBrands();
+  else loadSummaryLife();
+}
+
+async function loadSummaryBrands() {
+  if (state.summary.length) { renderSummaryCategoryChips(); renderSummaryTable(); return; }
+  const box = document.getElementById('summaryGroups');
+  box.innerHTML = `<div style="padding:40px 0;text-align:center;color:var(--text-faint);">Loading summary…</div>`;
+  try {
+    const data = await apiGet('summary');
+    state.summary = data.summary;
+    renderSummaryCategoryChips();
+    renderSummaryTable();
+  } catch (err) {
+    toast(err.message, true);
+    box.innerHTML = `<div class="empty-state"><h3>Couldn't load the summary</h3><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function loadSummaryLife(force) {
+  if (state.lifeSummary.length && !force) { renderLifeSummary(); return; }
+  const box = document.getElementById('summaryLifePanel');
+  box.innerHTML = `<div style="padding:40px 0;text-align:center;color:var(--text-faint);">Analyzing history cards…</div>`;
+  try {
+    const data = await apiGet('lifeSummary');
+    state.lifeSummary = data.life;
+    renderLifeSummary();
+  } catch (err) {
+    toast(err.message, true);
+    box.innerHTML = `<div class="empty-state"><h3>Couldn't load the lifecycle analysis</h3><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+const CONDITION_COLORS = {
+  'Good': { fg: '#2f9e6f', bg: '#dcf3e8' },
+  'Fair': { fg: '#c9821e', bg: '#f9eed8' },
+  'Poor': { fg: '#c8443f', bg: '#fbe6e5' },
+  'Due for replacement': { fg: '#ffffff', bg: '#c8443f' },
+  'Unknown': { fg: '#8fafb5', bg: '#f4f9fa' }
+};
+
+async function refreshLifeSheet() {
+  const btn = document.getElementById('refreshLifeSheetBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Writing…';
+  try {
+    const data = await apiPost('refreshLifeSheet');
+    state.lifeSummary = []; // force a reload so the view reads the updated sheet
+    if (data.unmatched && data.unmatched.length) {
+      toast(`Wrote ${data.written} rows. ${data.unmatched.length} source name${data.unmatched.length > 1 ? 's' : ''} had no matching tab — check the note on those cells in the sheet.`, true);
+    } else {
+      toast(`Wrote all ${data.written} rows to the Equipment Summary sheet.`);
+    }
+    await loadSummaryLife(true);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Write to "Equipment Summary" sheet';
+  }
+}
+
+function renderLifeSummary() {
+  const box = document.getElementById('summaryLifePanel');
+  const rows = state.lifeSummary;
+
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty-state"><h3>No data</h3><p>No asset tabs found.</p></div>`;
+    return;
+  }
+
+  let html = '';
+  if (state.role !== 'viewer') {
+    html += `<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button class="btn btn-primary" style="width:auto;" id="refreshLifeSheetBtn" onclick="refreshLifeSheet()">Write to "Equipment Summary" sheet</button>
+    </div>`;
+  }
+  html += `<div style="margin-bottom:14px;font-size:12.5px;color:var(--text-muted);line-height:1.5;">
+    Replacement planning is computed live for every tracked unit — <b>motor, pump, VFD, and chlorinator</b>.
+    <b>Expected lifespan / remaining life / replacement target</b> use an assumed flat <b>5-year service life</b> for all equipment,
+    counted from each unit's install date (falling back to the asset's activation date when a specific install date isn't
+    recorded). Your sheets don't record manufacturer-rated lifespans, so treat these as planning guidance, not fact.
+  </div>`;
+
+  const byCategory = {};
+  rows.forEach(r => { (byCategory[r.category] = byCategory[r.category] || []).push(r); });
+
+  Object.keys(byCategory).forEach(cat => {
+    const color = CATEGORY_COLORS[cat] || '#0a7f93';
+    html += `<div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block;"></span>
+        <h3 style="font-family:var(--display);font-size:15px;margin:0;color:${color};">${escapeHtml(cat)}</h3>
+        <span class="mono" style="font-size:11px;color:var(--text-faint);">${byCategory[cat].length} assets</span>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);">
+        <table class="summary-table"><thead><tr>
+          <th>Source</th><th>Component</th><th>Manufacturer · Model</th><th>Installed</th><th>Age</th>
+          <th>Lifespan</th><th>Remaining Life</th><th>Replacement Target</th><th>Condition</th>
+        </tr></thead><tbody>`;
+    byCategory[cat].forEach(r => {
+      const comps = (r.components && r.components.length) ? r.components : [legacyLifeComponent(r)];
+      const clickable = !!r.id;
+      comps.forEach(c => {
+        const cc = CONDITION_COLORS[c.condition] || CONDITION_COLORS['Unknown'];
+        const hasPrediction = c.remaining !== null && c.remaining !== undefined;
+        html += `<tr class="${clickable ? 'summary-row-link' : ''}" ${clickable ? `onclick="openAsset('${escapeAttr(r.id)}')"` : ''} title="${escapeAttr(compTitle(c, r))}">
+          <td class="src" style="${c.key !== (comps[0] || {}).key ? 'padding-top:4px;padding-bottom:4px;' : ''}">${escapeHtml(r.source)}</td>
+          <td><b style="font-size:12.5px;">${escapeHtml(c.label)}</b></td>
+          <td class="mono">${escapeHtml(c.manufacturer)}${c.model ? ' · ' + escapeHtml(c.model) : '<span style="color:var(--text-faint);">—</span>'}</td>
+          <td class="mono">${escapeHtml(c.installDate) || '<span style="color:var(--text-faint);">No date</span>'}</td>
+          <td class="mono">${c.ageYears !== null && c.ageYears !== undefined ? c.ageYears + ' yrs' : '—'}</td>
+          <td class="mono">${c.lifespanYears} yrs</td>
+          <td class="mono">${hasPrediction ? c.remaining + ' yrs' : '<span style="color:var(--text-faint);">Unknown</span>'}</td>
+          <td class="mono">${escapeHtml(c.replacementTarget) || '<span style="color:var(--text-faint);">—</span>'}</td>
+          <td><span class="type-badge" style="--type-color:${cc.fg};--type-bg:${cc.bg};color:${cc.fg};background:${cc.bg};">${escapeHtml(c.condition)}</span></td>
+        </tr>`;
+      });
+    });
+    html += `</tbody></table></div></div>`;
+  });
+  box.innerHTML = html;
+}
+
+function legacyLifeComponent(r) {
+  return {
+    key: 'main', label: r.equipment || 'System', manufacturer: '', model: '',
+    lifespanYears: r.expectedLifespan || '',
+    installDate: r.activationDate || '', dateSource: '',
+    ageYears: null, remaining: null, replacementTarget: r.replacementTarget || '',
+    condition: r.currentCondition || 'Unknown'
+  };
+}
+
+function compTitle(c, r) {
+  if (c.dateSource === 'activation') {
+    return (c.label || '') + ' — no specific install date; counted from asset activation ' + (c.installDate || '');
+  }
+  return r.lifeBasis || '';
+}
+
+async function showUsers() {
+  hideAllViews();
+  document.getElementById('viewUsers').classList.remove('hidden');
+  setActiveNav('users');
+  const box = document.getElementById('viewUsers');
+  box.innerHTML = `<div style="padding:40px 0;text-align:center;color:var(--text-faint);">Loading users…</div>`;
+  try {
+    const data = await apiGet('users');
+    state.users = data.users;
+    renderUsersView();
+  } catch (err) {
+    toast(err.message, true);
+    box.innerHTML = `<div class="empty-state"><h3>Couldn't load users</h3><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+function renderUsersView() {
+  const box = document.getElementById('viewUsers');
+  let html = `
+    <div class="detail-title" style="margin-bottom:16px;"><h2>Users</h2></div>
+    <div class="users-toolbar">
+      <div class="mono" style="font-size:12px;color:var(--text-faint);">${state.users.length} account${state.users.length === 1 ? '' : 's'}</div>
+      <button class="btn btn-primary" style="width:auto;" onclick="openUserModal()">+ Add user</button>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);">
+      <table class="summary-table"><thead><tr>
+        <th>Username</th><th>Role</th><th>Status</th><th></th>
+      </tr></thead><tbody>`;
+  state.users.forEach(u => {
+    html += `<tr>
+      <td class="src">${escapeHtml(u.username)}${u.username === state.username ? ' <span class="mono" style="color:var(--text-faint);font-size:11px;">(you)</span>' : ''}</td>
+      <td><span class="role-pill ${u.role}">${escapeHtml(u.role)}</span></td>
+      <td><span class="status-dot ${u.active ? 'on' : 'off'}"></span>${u.active ? 'Active' : 'Disabled'}</td>
+      <td style="text-align:right;"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="openUserModal(${u.row})">Edit</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  box.innerHTML = html;
+}
+
+function openUserModal(row) {
+  const existing = row ? state.users.find(u => u.row === row) : null;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+  backdrop.innerHTML = `<div class="modal">
+    <h3>${existing ? 'Edit user' : 'Add user'}</h3>
+    <div class="form-grid">
+      <div class="span2"><label>Username</label><input type="text" id="uf_username" value="${existing ? escapeAttr(existing.username) : ''}"></div>
+      <div><label>${existing ? 'New password (leave blank to keep)' : 'Password'}</label><input type="password" id="uf_password" placeholder="${existing ? '••••••••' : ''}"></div>
+      <div><label>Role</label>
+        <select id="uf_role">
+          <option value="admin" ${(!existing || existing.role === 'admin') ? 'selected' : ''}>Admin — view + edit</option>
+          <option value="viewer" ${existing && existing.role === 'viewer' ? 'selected' : ''}>Viewer — read only</option>
+        </select>
+      </div>
+      ${existing ? `<div class="span2"><label>Status</label>
+        <select id="uf_active">
+          <option value="true" ${existing.active ? 'selected' : ''}>Active</option>
+          <option value="false" ${!existing.active ? 'selected' : ''}>Disabled</option>
+        </select></div>` : ''}
+    </div>
+    <div class="modal-actions">
+      <div>${existing && existing.username !== state.username ? `<button class="btn btn-danger" id="deleteUserBtn">Delete user</button>` : ''}</div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-ghost" id="cancelUserBtn">Cancel</button>
+        <button class="btn btn-primary" style="width:auto;" id="saveUserBtn">${existing ? 'Save changes' : 'Add user'}</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(backdrop);
+
+  backdrop.querySelector('#cancelUserBtn').onclick = () => backdrop.remove();
+  if (existing && existing.username !== state.username) {
+    backdrop.querySelector('#deleteUserBtn').onclick = async () => {
+      if (!confirm(`Delete user "${existing.username}"? This can't be undone.`)) return;
+      try {
+        await apiPost('deleteUser', { row: existing.row });
+        toast('User deleted');
+        backdrop.remove();
+        await showUsers();
+      } catch (err) { toast(err.message, true); }
+    };
+  }
+
+  backdrop.querySelector('#saveUserBtn').onclick = async () => {
+    const btn = backdrop.querySelector('#saveUserBtn');
+    const username = backdrop.querySelector('#uf_username').value.trim();
+    const password = backdrop.querySelector('#uf_password').value;
+    const role = backdrop.querySelector('#uf_role').value;
+    if (!username) { toast('Username is required', true); return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      if (existing) {
+        const activeEl = backdrop.querySelector('#uf_active');
+        await apiPost('updateUser', {
+          row: existing.row, username, role,
+          active: activeEl.value === 'true',
+          password: password || undefined
+        });
+        toast('User updated');
+      } else {
+        if (!password) { toast('Password is required', true); btn.disabled = false; btn.textContent = 'Add user'; return; }
+        await apiPost('addUser', { username, password, role });
+        toast('User added');
+      }
+      backdrop.remove();
+      await showUsers();
+    } catch (err) {
+      toast(err.message, true);
+      btn.disabled = false; btn.textContent = existing ? 'Save changes' : 'Add user';
+    }
+  };
+}
+
+// ===========================================================================
+// CHARTS
+// ===========================================================================
+let categoryChartInstance = null;
+let readingsChartInstance = null;
+let lastReadingsLog = null; // remembered so a theme switch can re-render the currently open log's chart
+
+const CHART_FONT = { family: "'IBM Plex Mono', monospace", size: 11 };
+
+/** Reads a CSS custom property from :root/html so charts follow the active theme. */
+function themeColor(varName, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  return v || fallback;
+}
+
+function renderCategoryChart() {
+  const canvas = document.getElementById('categoryChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const counts = {};
+  state.assets.forEach(a => { counts[a.category] = (counts[a.category] || 0) + 1; });
+  const labels = Object.keys(counts);
+  const values = labels.map(l => counts[l]);
+  const colors = labels.map(l => CATEGORY_COLORS[l] || '#0a7f93');
+
+  if (categoryChartInstance) categoryChartInstance.destroy();
+  categoryChartInstance = new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderColor: themeColor('--chart-border', '#ffffff'), borderWidth: 2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '62%',
+      plugins: {
+        legend: { position: 'right', labels: { color: themeColor('--text-muted', '#57777d'), font: CHART_FONT, boxWidth: 10, padding: 12 } },
+        tooltip: { titleFont: CHART_FONT, bodyFont: CHART_FONT }
+      }
+    }
+  });
+}
+
+function renderReadingsChart(log) {
+  const canvas = document.getElementById('readingsChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  lastReadingsLog = log;
+
+  // Chronological order, only entries with at least one numeric reading.
+  const points = [...log].filter(e => e.pressurePsi !== '' || e.dischargeLps !== '')
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  if (readingsChartInstance) readingsChartInstance.destroy();
+  if (!points.length) return;
+
+  const tickColor = themeColor('--text-faint', '#8fafb5');
+  const gridColor = themeColor('--border-soft', '#e6f0f1');
+
+  readingsChartInstance = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: points.map(p => p.date || ''),
+      datasets: [
+        {
+          label: 'Pressure (PSI)', data: points.map(p => p.pressurePsi === '' ? null : Number(p.pressurePsi)),
+          borderColor: themeColor('--teal', '#0a7f93'), backgroundColor: 'rgba(10,127,147,0.08)', tension: 0.3, spanGaps: true, yAxisID: 'y'
+        },
+        {
+          label: 'Discharge (LPS)', data: points.map(p => p.dischargeLps === '' ? null : Number(p.dischargeLps)),
+          borderColor: themeColor('--blue', '#2e7da6'), backgroundColor: 'rgba(46,125,166,0.08)', tension: 0.3, spanGaps: true, yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: themeColor('--text-muted', '#57777d'), font: CHART_FONT, boxWidth: 10 } },
+        tooltip: { titleFont: CHART_FONT, bodyFont: CHART_FONT }
+      },
+      scales: {
+        x: { ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor } },
+        y: { position: 'left', ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor }, title: { display: true, text: 'PSI', color: tickColor, font: CHART_FONT } },
+        y1: { position: 'right', ticks: { color: tickColor, font: CHART_FONT }, grid: { display: false }, title: { display: true, text: 'LPS', color: tickColor, font: CHART_FONT } }
+      }
+    }
+  });
+}
+
+/** Re-draws whichever charts are currently on screen so their colors follow a theme switch. */
+function refreshChartsForTheme() {
+  if (categoryChartInstance) renderCategoryChart();
+  if (readingsChartInstance && lastReadingsLog) renderReadingsChart(lastReadingsLog);
+}
+
+// ===========================================================================
+// ASSET GRID
+// ===========================================================================
+function renderCategoryChips() {
+  const cats = ['All', ...new Set(state.assets.map(a => a.category))];
+  const box = document.getElementById('categoryChips');
+  box.innerHTML = '';
+  cats.forEach(cat => {
+    const count = cat === 'All' ? state.assets.length : state.assets.filter(a => a.category === cat).length;
+    const chip = document.createElement('button');
+    chip.className = 'chip' + (state.categoryFilter === cat ? ' active' : '');
+    chip.innerHTML = `${cat} <span class="count">${count}</span>`;
+    chip.onclick = () => { state.categoryFilter = cat; renderCategoryChips(); renderAssetGrid(); };
+    box.appendChild(chip);
+  });
+}
+
+function renderAssetGrid() {
+  const grid = document.getElementById('assetGrid');
+  let list = state.assets;
+  if (state.categoryFilter !== 'All') list = list.filter(a => a.category === state.categoryFilter);
+  if (state.searchTerm) list = list.filter(a => a.title.toLowerCase().includes(state.searchTerm) || a.id.toLowerCase().includes(state.searchTerm));
+
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+      <h3>No assets match</h3><p>Try a different search term or category.</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = '';
+  list.forEach(a => {
+    const color = CATEGORY_COLORS[a.category] || '#0a7f93';
+    const card = document.createElement('div');
+    card.className = 'asset-card';
+    card.style.setProperty('--cat-color', color);
+    card.innerHTML = `
+      <div class="badge-row">
+        ${a.code ? `<span class="badge">${escapeHtml(a.code)}</span>` : ''}
+        ${a.number ? `<span class="badge">#${escapeHtml(String(a.number))}</span>` : ''}
+      </div>
+      <h3>${escapeHtml(a.title)}</h3>
+      <div class="cat" style="--cat-color:${color};">${escapeHtml(a.category)}</div>`;
+    card.onclick = () => openAsset(a.id);
+    grid.appendChild(card);
+  });
+}
+
+// ===========================================================================
+// ASSET DETAIL
+// ===========================================================================
+async function openAsset(id) {
+  document.getElementById('viewList').classList.add('hidden');
+  document.getElementById('viewSummary').classList.add('hidden');
+  const detail = document.getElementById('viewDetail');
+  detail.classList.remove('hidden');
+  detail.innerHTML = `<div style="padding:60px 0;text-align:center;color:var(--text-faint);">Loading asset record…</div>`;
+  setActiveNav('');
+
+  try {
+    const data = await apiGet('asset', { id });
+    state.currentAsset = data.asset;
+    state.dirtySpecs = {};
+    state.currentTab = 'specs';
+    renderAssetDetail();
+  } catch (err) {
+    toast(err.message, true);
+    showAssetList();
+  }
+}
+
+function renderAssetDetail() {
+  const a = state.currentAsset;
+  const color = CATEGORY_COLORS[a.category] || '#0a7f93';
+  const detail = document.getElementById('viewDetail');
+
+  detail.innerHTML = `
+    <button class="back-link" onclick="showAssetList()">&larr; All assets</button>
+    <div class="detail-header">
+      <div class="detail-title">
+        <h2>${escapeHtml(a.title)}</h2>
+        ${a.code ? `<span class="badge">${escapeHtml(a.code)}</span>` : ''}
+        <span class="cat" style="--cat-color:${color};color:${color};">${escapeHtml(a.category)}</span>
+      </div>
+    </div>
+    <div class="tabbar">
+      <button class="tabbtn ${state.currentTab === 'specs' ? 'active' : ''}" onclick="switchTab('specs')">Equipment Specs</button>
+      <button class="tabbtn ${state.currentTab === 'log' ? 'active' : ''}" onclick="switchTab('log')">Maintenance History <span class="mono" style="opacity:.6;">(${a.log.length})</span></button>
+    </div>
+    <div id="tabContent"></div>
+  `;
+  renderTabContent();
+}
+
+function switchTab(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.tabbtn').forEach((b, i) => b.classList.toggle('active', (i === 0 && tab === 'specs') || (i === 1 && tab === 'log')));
+  renderTabContent();
+}
+
+function renderTabContent() {
+  const box = document.getElementById('tabContent');
+  if (state.currentTab === 'specs') renderSpecsTab(box);
+  else renderLogTab(box);
+}
+
+// ---------- specs tab ----------
+function renderSpecsTab(box) {
+  const specs = state.currentAsset.specs;
+  if (!specs.length) {
+    box.innerHTML = `<div class="spec-empty">No equipment spec fields found on this tab.</div>`;
+    return;
+  }
+  const canEdit = state.role !== 'viewer';
+  const bySection = {};
+  specs.forEach(s => { (bySection[s.section] = bySection[s.section] || []).push(s); });
+
+  let html = `<div class="spec-sections">`;
+  Object.keys(bySection).forEach(section => {
+    html += `<div class="spec-section"><h4>${escapeHtml(section)}</h4>`;
+    bySection[section].forEach(s => {
+      const key = s.row + '-' + s.col;
+      html += `<div class="spec-row">
+        <label>${escapeHtml(s.label)}</label>
+        <input class="spec-value mono" data-key="${key}" data-row="${s.row}" data-col="${s.col}"
+          value="${escapeAttr(s.value)}" onchange="markDirty(this)" ${canEdit ? '' : 'readonly'}>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  html += `</div>`;
+  if (canEdit) {
+    html += `<div class="save-bar">
+      <button class="btn btn-ghost" onclick="renderSpecsTab(document.getElementById('tabContent'))">Discard changes</button>
+      <button class="btn btn-primary" id="saveSpecsBtn" style="width:auto;" onclick="saveSpecs()">Save changes</button>
+    </div>`;
+  }
+  box.innerHTML = html;
+  state.dirtySpecs = {};
+}
+
+function markDirty(input) {
+  input.classList.add('dirty');
+  state.dirtySpecs[input.dataset.key] = {
+    row: Number(input.dataset.row),
+    col: Number(input.dataset.col),
+    value: input.value
+  };
+}
+
+async function saveSpecs() {
+  const keys = Object.keys(state.dirtySpecs);
+  if (!keys.length) { toast('No changes to save'); return; }
+  const btn = document.getElementById('saveSpecsBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving…';
+  try {
+    for (const k of keys) {
+      const d = state.dirtySpecs[k];
+      await apiPost('updateSpec', { id: state.currentAsset.id, row: d.row, col: d.col, value: d.value });
+    }
+    toast(`Saved ${keys.length} field${keys.length > 1 ? 's' : ''}`);
+    state.dirtySpecs = {};
+    document.querySelectorAll('.spec-value.dirty').forEach(el => el.classList.remove('dirty'));
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save changes';
+  }
+}
+
+// ---------- log tab ----------
+function renderLogTab(box) {
+  const log = state.currentAsset.log;
+  const canEdit = state.role !== 'viewer';
+  const hasReadings = log.some(e => e.pressurePsi !== '' || e.dischargeLps !== '');
+
+  let html = '';
+  if (hasReadings) {
+    html += `<div class="chart-card" style="margin-bottom:16px;">
+      <h4>Pressure &amp; discharge over time</h4>
+      <div class="chart-wrap tall"><canvas id="readingsChart"></canvas></div>
+    </div>`;
+  }
+  html += `<div class="log-toolbar">
+      <div class="mono" style="font-size:12px;color:var(--text-faint);">${log.length} entr${log.length === 1 ? 'y' : 'ies'} · most recent first</div>
+      ${canEdit ? `<button class="btn btn-primary" style="width:auto;" onclick="openLogModal()">+ Add maintenance entry</button>` : ''}
+    </div>`;
+
+  if (!log.length) {
+    html += `<div class="empty-state">
+      <h3>No maintenance history yet</h3>
+      <p>Add the first entry for this asset.</p></div>`;
+    box.innerHTML = html;
+    return;
+  }
+
+  html += `<div class="log-list">`;
+  log.forEach(e => {
+    const type = (e.maintenanceType || 'OTHERS').toUpperCase();
+    const tc = TYPE_COLORS[type] || TYPE_COLORS['OTHERS'];
+    const readings = buildReadingChips(e);
+    html += `<div class="log-entry" style="--type-color:${tc.fg};--type-bg:${tc.bg};${canEdit ? '' : 'cursor:default;'}" ${canEdit ? `onclick="openLogModal(${e.row})"` : ''}>
+      <div class="row1">
+        <span class="date">${escapeHtml(e.date || '—')}</span>
+        <span class="type-badge" style="--type-color:${tc.fg};--type-bg:${tc.bg};">${escapeHtml(type)}</span>
+        <span class="report">${escapeHtml(e.reportNumber || '')}</span>
+      </div>
+      <div class="details">${escapeHtml(e.details || '')}</div>
+      ${readings ? `<div class="readings">${readings}</div>` : ''}
+    </div>`;
+  });
+  html += `</div>`;
+  box.innerHTML = html;
+  if (hasReadings) renderReadingsChart(log);
+}
+
+function buildReadingChips(e) {
+  const chips = [];
+  if (e.pressurePsi !== '') chips.push(`PSI <b>${e.pressurePsi}</b>`);
+  if (e.dischargeLps !== '') chips.push(`LPS <b>${e.dischargeLps}</b>`);
+  if (e.frequency !== '') chips.push(`Hz <b>${e.frequency}</b>`);
+  if (e.staticWl !== '') chips.push(`Static WL <b>${e.staticWl}m</b>`);
+  if (e.pumpingWl !== '') chips.push(`Pumping WL <b>${e.pumpingWl}m</b>`);
+  if (e.performedBy) chips.push(`By <b>${escapeHtml(e.performedBy)}</b>`);
+  return chips.map(c => `<span class="reading-chip">${c}</span>`).join('');
+}
+
+// ---------- log modal ----------
+const LOG_FORM_FIELDS = [
+  { key: 'date', label: 'Date', type: 'date', span: 1 },
+  { key: 'reportNumber', label: 'Report number', type: 'text', span: 1, placeholder: 'EM-2026-01-000' },
+  { key: 'maintenanceType', label: 'Type', type: 'select', span: 1, options: ['PREVENTIVE', 'CORRECTIVE', 'OTHERS'] },
+  { key: 'performedBy', label: 'Performed / conducted by', type: 'text', span: 1 },
+  { key: 'details', label: 'Details', type: 'textarea', span: 2 },
+  { key: 'workCarriedOut', label: 'Work carried out', type: 'textarea', span: 2 },
+  { key: '__section_motor', label: 'Motor Current (A)', section: true },
+  { key: 'currentBeforeL1', label: 'Before VFD · L1', type: 'number' },
+  { key: 'currentBeforeL2', label: 'Before VFD · L2', type: 'number' },
+  { key: 'currentBeforeL3', label: 'Before VFD · L3', type: 'number' },
+  { key: 'currentAfterL1', label: 'After VFD · L1', type: 'number' },
+  { key: 'currentAfterL2', label: 'After VFD · L2', type: 'number' },
+  { key: 'currentAfterL3', label: 'After VFD · L3', type: 'number' },
+  { key: '__section_volt', label: 'Motor Voltage (V)', section: true },
+  { key: 'voltageBeforeL1L2', label: 'Before VFD · L1-L2', type: 'number' },
+  { key: 'voltageBeforeL1L3', label: 'Before VFD · L1-L3', type: 'number' },
+  { key: 'voltageBeforeL2L3', label: 'Before VFD · L2-L3', type: 'number' },
+  { key: 'voltageAfterL1L2', label: 'After VFD · L1-L2', type: 'number' },
+  { key: 'voltageAfterL1L3', label: 'After VFD · L1-L3', type: 'number' },
+  { key: 'voltageAfterL2L3', label: 'After VFD · L2-L3', type: 'number' },
+  { key: '__section_pump', label: 'Pump Readings', section: true },
+  { key: 'frequency', label: 'Frequency (Hz)', type: 'number' },
+  { key: 'dischargeLps', label: 'Discharge (LPS)', type: 'number' },
+  { key: 'pressurePsi', label: 'Pressure (PSI)', type: 'number' },
+  { key: 'pumpingWl', label: 'Pumping WL (m)', type: 'number' },
+  { key: 'staticWl', label: 'Static WL (m)', type: 'number' },
+  { key: 'drawdown', label: 'Drawdown level (m)', type: 'number' },
+  { key: '__section_notes', label: 'Notes', section: true },
+  { key: 'remarks', label: 'Remarks', type: 'textarea', span: 2 }
+];
+
+function openLogModal(row) {
+  const existing = row ? state.currentAsset.log.find(e => e.row === row) : null;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+  let fieldsHtml = '';
+  LOG_FORM_FIELDS.forEach(f => {
+    if (f.section) {
+      fieldsHtml += `<div class="form-section-label">${escapeHtml(f.label)}</div>`;
+      return;
+    }
+    const val = existing ? (existing[f.key] ?? '') : '';
+    const spanClass = f.span === 2 ? ' span2' : '';
+    let control = '';
+    if (f.type === 'select') {
+      control = `<select data-key="${f.key}">` + f.options.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`).join('') + `</select>`;
+    } else if (f.type === 'textarea') {
+      control = `<textarea data-key="${f.key}" placeholder="${escapeAttr(f.placeholder || '')}">${escapeHtml(String(val))}</textarea>`;
+    } else {
+      control = `<input type="${f.type}" data-key="${f.key}" value="${escapeAttr(String(val))}" placeholder="${escapeAttr(f.placeholder || '')}" ${f.type === 'number' ? 'step="any"' : ''}>`;
+    }
+    fieldsHtml += `<div class="${spanClass}"><label>${escapeHtml(f.label)}</label>${control}</div>`;
+  });
+
+  backdrop.innerHTML = `<div class="modal">
+    <h3>${existing ? 'Edit maintenance entry' : 'New maintenance entry'}</h3>
+    <div class="form-grid">${fieldsHtml}</div>
+    <div class="modal-actions">
+      <div>${existing ? `<button class="btn btn-danger" id="deleteLogBtn">Delete entry</button>` : ''}</div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-ghost" id="cancelLogBtn">Cancel</button>
+        <button class="btn btn-primary" style="width:auto;" id="saveLogBtn">${existing ? 'Save changes' : 'Add entry'}</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(backdrop);
+
+  backdrop.querySelector('#cancelLogBtn').onclick = () => backdrop.remove();
+  if (existing) {
+    backdrop.querySelector('#deleteLogBtn').onclick = async () => {
+      if (!confirm('Delete this maintenance entry? This clears the row in the sheet.')) return;
+      try {
+        await apiPost('deleteLog', { id: state.currentAsset.id, row: existing.row });
+        toast('Entry deleted');
+        backdrop.remove();
+        await refreshCurrentAsset();
+      } catch (err) { toast(err.message, true); }
+    };
+  }
+
+  backdrop.querySelector('#saveLogBtn').onclick = async () => {
+    const btn = backdrop.querySelector('#saveLogBtn');
+    const entry = {};
+    backdrop.querySelectorAll('[data-key]').forEach(el => { entry[el.dataset.key] = el.value; });
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      if (existing) {
+        await apiPost('updateLog', { id: state.currentAsset.id, row: existing.row, entry });
+        toast('Entry updated');
+      } else {
+        await apiPost('addLog', { id: state.currentAsset.id, entry });
+        toast('Entry added');
+      }
+      backdrop.remove();
+      await refreshCurrentAsset();
+    } catch (err) {
+      toast(err.message, true);
+      btn.disabled = false; btn.textContent = existing ? 'Save changes' : 'Add entry';
+    }
+  };
+}
+
+async function refreshCurrentAsset() {
+  const id = state.currentAsset.id;
+  const data = await apiGet('asset', { id });
+  state.currentAsset = data.asset;
+  renderAssetDetail();
+  switchTab('log');
+}
+
+// ===========================================================================
+// SUMMARY
+// ===========================================================================
+function renderSummaryCategoryChips() {
+  const cats = ['All', ...new Set(state.summary.map(r => r.category))];
+  const box = document.getElementById('summaryCategoryChips');
+  box.innerHTML = '';
+  cats.forEach(cat => {
+    const count = cat === 'All' ? state.summary.length : state.summary.filter(r => r.category === cat).length;
+    const chip = document.createElement('button');
+    chip.className = 'chip' + (state.summaryCategoryFilter === cat ? ' active' : '');
+    chip.innerHTML = `${escapeHtml(cat)} <span class="count">${count}</span>`;
+    chip.onclick = () => { state.summaryCategoryFilter = cat; renderSummaryCategoryChips(); renderSummaryTable(); };
+    box.appendChild(chip);
+  });
+}
+
+function renderSummaryTable() {
+  const box = document.getElementById('summaryGroups');
+  let rows = state.summary;
+  if (state.summaryCategoryFilter !== 'All') rows = rows.filter(r => r.category === state.summaryCategoryFilter);
+
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty-state">
+      <h3>No summary rows</h3>
+      <p>Nothing found on the PUMPS AND CONTROL SUMMARY sheet${state.summaryCategoryFilter !== 'All' ? ' for this category' : ''}.</p></div>`;
+    return;
+  }
+
+  const byCategory = {};
+  rows.forEach(r => { (byCategory[r.category] = byCategory[r.category] || []).push(r); });
+
+  let html = '';
+  Object.keys(byCategory).forEach(cat => {
+    const color = CATEGORY_COLORS[cat] || '#0a7f93';
+    html += `<div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block;"></span>
+        <h3 style="font-family:var(--display);font-size:15px;margin:0;color:${color};">${escapeHtml(cat)}</h3>
+        <span class="mono" style="font-size:11px;color:var(--text-faint);">${byCategory[cat].length}</span>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);">
+        <table class="summary-table"><thead><tr>
+          <th>Source</th><th>VFD Brand</th><th>VFD Power</th><th>Pump Brand</th><th>Pump Power</th><th>Motor Brand</th><th>Motor Power</th>
+          <th>Motor Life</th><th>Pump Life</th><th>VFD Life</th><th>Chlor. Life</th>
+        </tr></thead><tbody>`;
+    byCategory[cat].forEach(r => {
+      const clickable = !!r.id;
+      html += `<tr class="${clickable ? 'summary-row-link' : ''}" ${clickable ? `onclick="openAsset('${escapeAttr(r.id)}')"` : ''}>
+        <td class="src">${escapeHtml(r.source)}</td>
+        <td class="mono">${cell(r.vfdBrand)}</td>
+        <td class="mono">${cell(r.vfdPower)}</td>
+        <td class="mono">${cell(r.pumpBrand)}</td>
+        <td class="mono">${cell(r.pumpPower)}</td>
+        <td class="mono">${cell(r.motorBrand)}</td>
+        <td class="mono">${cell(r.motorPower)}</td>
+        <td class="mono">${lifeCell(r.motorLife)}</td>
+        <td class="mono">${lifeCell(r.pumpLife)}</td>
+        <td class="mono">${lifeCell(r.vfdLife)}</td>
+        <td class="mono">${lifeCell(r.chlorinatorLife)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  });
+  box.innerHTML = html;
+}
+
+function lifeCell(life) {
+  if (!life) return '<span style="color:var(--text-faint);">—</span>';
+  const cc = CONDITION_COLORS[life.condition] || CONDITION_COLORS['Unknown'];
+  const parts = [];
+  if (life.remaining) parts.push(life.remaining);
+  if (life.target) parts.push(life.target);
+  if (!parts.length) return '<span style="color:var(--text-faint);">—</span>';
+  return `<span style="color:${cc.fg};">${escapeHtml(parts.join(' · '))}</span>`;
+}
+
+function cell(v) {
+  const s = String(v ?? '');
+  return s ? escapeHtml(s) : '<span style="color:var(--text-faint);">—</span>';
+}
+
+// ===========================================================================
+// UTIL
+// ===========================================================================
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+</script>
+</body>
+</html>
