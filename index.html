@@ -36,6 +36,8 @@
     --red-dim:#fbe6e5;
     --blue:#2e7da6;
     --blue-dim:#e1eef4;
+    --green:#2f9e6f;
+    --purple:#6d54ab;
     --radius:10px;
     --mono:'IBM Plex Mono', ui-monospace, monospace;
     --sans:'IBM Plex Sans', system-ui, sans-serif;
@@ -62,6 +64,8 @@
     --red-dim:#3a1c1c;
     --blue:#5fa8d6;
     --blue-dim:#152836;
+    --green:#4fc48f;
+    --purple:#a78bda;
     --topbar-bg:rgba(16,28,31,0.85);
     --chart-border:#132226;
     color-scheme: dark;
@@ -210,7 +214,7 @@
     color:var(--text-faint);margin:0 0 12px;
   }
   .chart-wrap{position:relative;height:180px;}
-  .chart-wrap.tall{height:240px;}
+  .chart-wrap.tall{height:280px;}
 
   /* ---------- users ---------- */
   .users-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
@@ -1004,13 +1008,49 @@ function renderCategoryChart() {
   });
 }
 
+/** Average of the listed numeric fields (ignoring blanks/N/A), or null. */
+function avgNum(p, keys) {
+  const vals = keys.map(k => parseFloat(p[k])).filter(v => !isNaN(v));
+  if (!vals.length) return null;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
+}
+
+function hasAnyReading(e) {
+  return e.pressurePsi !== '' || e.dischargeLps !== '' || e.frequency !== '' ||
+    e.pumpingWl !== '' || e.staticWl !== '' || e.drawdown !== '' ||
+    e.currentBeforeL1 !== '' || e.currentBeforeL2 !== '' || e.currentBeforeL3 !== '' ||
+    e.currentAfterL1 !== '' || e.currentAfterL2 !== '' || e.currentAfterL3 !== '' ||
+    e.voltageBeforeL1L2 !== '' || e.voltageAfterL1L2 !== '' || e.voltageAfterL1L3 !== '' || e.voltageAfterL2L3 !== '';
+}
+
+/** Max deviation from the average of a 3-phase reading set, as a percentage (null if fewer than 3 values). */
+function imbalFromKeys(e, keys) {
+  const vals = keys.map(k => parseFloat(e[k])).filter(v => !isNaN(v));
+  if (vals.length < 3) return null;
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (!avg) return null;
+  return Math.round(Math.max(...vals.map(v => Math.abs(v - avg))) / avg * 1000) / 10;
+}
+
+/** Phase imbalance flags for a log entry: current >10% alert / >20% critical, voltage >2% alert / >5% critical. */
+function phaseImbalance(e) {
+  const cur = imbalFromKeys(e, ['currentAfterL1', 'currentAfterL2', 'currentAfterL3']) ?? imbalFromKeys(e, ['currentBeforeL1', 'currentBeforeL2', 'currentBeforeL3']);
+  const vol = imbalFromKeys(e, ['voltageAfterL1L2', 'voltageAfterL1L3', 'voltageAfterL2L3']) ?? imbalFromKeys(e, ['voltageBeforeL1L2', 'voltageBeforeL1L3', 'voltageBeforeL2L3']);
+  const flags = [];
+  if (cur !== null && cur > 20) flags.push({ kind: 'Current', pct: cur, level: 'critical' });
+  else if (cur !== null && cur > 10) flags.push({ kind: 'Current', pct: cur, level: 'alert' });
+  if (vol !== null && vol > 5) flags.push({ kind: 'Voltage', pct: vol, level: 'critical' });
+  else if (vol !== null && vol > 2) flags.push({ kind: 'Voltage', pct: vol, level: 'alert' });
+  return flags;
+}
+
 function renderReadingsChart(log) {
   const canvas = document.getElementById('readingsChart');
   if (!canvas || typeof Chart === 'undefined') return;
   lastReadingsLog = log;
 
   // Chronological order, only entries with at least one numeric reading.
-  const points = [...log].filter(e => e.pressurePsi !== '' || e.dischargeLps !== '')
+  const points = [...log].filter(hasAnyReading)
     .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
   if (readingsChartInstance) readingsChartInstance.destroy();
@@ -1018,6 +1058,16 @@ function renderReadingsChart(log) {
 
   const tickColor = themeColor('--text-faint', '#8fafb5');
   const gridColor = themeColor('--border-soft', '#e6f0f1');
+  const teal = themeColor('--teal', '#0a7f93');
+  const blue = themeColor('--blue', '#2e7da6');
+  const amber = themeColor('--amber', '#c9821e');
+  const green = themeColor('--green', '#2f9e6f');
+  const purple = themeColor('--purple', '#6d54ab');
+
+  const num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
+  const current = p => avgNum(p, ['currentAfterL1', 'currentAfterL2', 'currentAfterL3']) ?? avgNum(p, ['currentBeforeL1', 'currentBeforeL2', 'currentBeforeL3']);
+  const voltage = p => avgNum(p, ['voltageAfterL1L2', 'voltageAfterL1L3', 'voltageAfterL2L3']) ?? avgNum(p, ['voltageBeforeL1L2', 'voltageBeforeL1L3', 'voltageBeforeL2L3']);
+  const waterLevel = p => (p.pumpingWl !== '' ? num(p.pumpingWl) : num(p.staticWl));
 
   readingsChartInstance = new Chart(canvas, {
     type: 'line',
@@ -1025,12 +1075,24 @@ function renderReadingsChart(log) {
       labels: points.map(p => p.date || ''),
       datasets: [
         {
-          label: 'Pressure (PSI)', data: points.map(p => p.pressurePsi === '' ? null : Number(p.pressurePsi)),
-          borderColor: themeColor('--teal', '#0a7f93'), backgroundColor: 'rgba(10,127,147,0.08)', tension: 0.3, spanGaps: true, yAxisID: 'y'
+          label: 'Pressure (PSI)', data: points.map(p => num(p.pressurePsi)),
+          borderColor: teal, backgroundColor: teal + '22', tension: 0.3, spanGaps: true, yAxisID: 'y'
         },
         {
-          label: 'Discharge (LPS)', data: points.map(p => p.dischargeLps === '' ? null : Number(p.dischargeLps)),
-          borderColor: themeColor('--blue', '#2e7da6'), backgroundColor: 'rgba(46,125,166,0.08)', tension: 0.3, spanGaps: true, yAxisID: 'y1'
+          label: 'Water level (m)', data: points.map(waterLevel),
+          borderColor: green, backgroundColor: green + '22', borderDash: [5, 4], tension: 0.3, spanGaps: true, yAxisID: 'y'
+        },
+        {
+          label: 'Discharge (LPS)', data: points.map(p => num(p.dischargeLps)),
+          borderColor: blue, backgroundColor: blue + '22', tension: 0.3, spanGaps: true, yAxisID: 'y1'
+        },
+        {
+          label: 'Current (A)', data: points.map(current),
+          borderColor: purple, backgroundColor: purple + '22', tension: 0.3, spanGaps: true, yAxisID: 'y1'
+        },
+        {
+          label: 'Voltage (V)', data: points.map(voltage),
+          borderColor: amber, backgroundColor: amber + '22', borderDash: [5, 4], tension: 0.3, spanGaps: true, yAxisID: 'y2'
         }
       ]
     },
@@ -1038,13 +1100,14 @@ function renderReadingsChart(log) {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: themeColor('--text-muted', '#57777d'), font: CHART_FONT, boxWidth: 10 } },
+        legend: { position: 'top', labels: { color: themeColor('--text-muted', '#57777d'), font: CHART_FONT, boxWidth: 10, padding: 12, usePointStyle: true } },
         tooltip: { titleFont: CHART_FONT, bodyFont: CHART_FONT }
       },
       scales: {
         x: { ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor } },
-        y: { position: 'left', ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor }, title: { display: true, text: 'PSI', color: tickColor, font: CHART_FONT } },
-        y1: { position: 'right', ticks: { color: tickColor, font: CHART_FONT }, grid: { display: false }, title: { display: true, text: 'LPS', color: tickColor, font: CHART_FONT } }
+        y: { position: 'left', ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor }, title: { display: true, text: 'PSI / m', color: tickColor, font: CHART_FONT } },
+        y1: { position: 'right', ticks: { color: tickColor, font: CHART_FONT }, grid: { display: false }, title: { display: true, text: 'LPS / A', color: tickColor, font: CHART_FONT } },
+        y2: { position: 'right', ticks: { color: tickColor, font: CHART_FONT }, grid: { display: false }, title: { display: true, text: 'V', color: tickColor, font: CHART_FONT } }
       }
     }
   });
@@ -1229,12 +1292,24 @@ async function saveSpecs() {
 function renderLogTab(box) {
   const log = state.currentAsset.log;
   const canEdit = state.role !== 'viewer';
-  const hasReadings = log.some(e => e.pressurePsi !== '' || e.dischargeLps !== '');
+  const hasReadings = log.some(hasAnyReading);
+  const latestFlags = log.length ? phaseImbalance(log[0]) : [];
 
   let html = '';
+  if (latestFlags.length) {
+    const flags = latestFlags.map(f => {
+      const crit = f.level === 'critical';
+      return `<span style="color:${crit ? 'var(--red)' : 'var(--amber)'};font-weight:700;">${f.kind} imbalance ${f.pct}% (${crit ? 'critical' : 'high'})</span>`;
+    }).join(' · ');
+    html += `<div style="display:flex;gap:10px;align-items:flex-start;background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--text);">
+      <span style="color:var(--red);font-size:15px;">&#9888;</span>
+      <div>3-phase imbalance detected on the latest entry (${escapeHtml(log[0].date || '—')}): ${flags}<br>
+      <span style="color:var(--text-faint);font-size:12px;">Recommended: check phase currents &amp; line voltages, tighten connections, and balance single-phase loads.</span></div>
+    </div>`;
+  }
   if (hasReadings) {
     html += `<div class="chart-card" style="margin-bottom:16px;">
-      <h4>Pressure &amp; discharge over time</h4>
+      <h4>Readings over time · pressure, discharge, water level, current, voltage</h4>
       <div class="chart-wrap tall"><canvas id="readingsChart"></canvas></div>
     </div>`;
   }
@@ -1278,8 +1353,14 @@ function buildReadingChips(e) {
   if (e.frequency !== '') chips.push(`Hz <b>${e.frequency}</b>`);
   if (e.staticWl !== '') chips.push(`Static WL <b>${e.staticWl}m</b>`);
   if (e.pumpingWl !== '') chips.push(`Pumping WL <b>${e.pumpingWl}m</b>`);
+  const amps = avgNum(e, ['currentAfterL1', 'currentAfterL2', 'currentAfterL3']) ?? avgNum(e, ['currentBeforeL1', 'currentBeforeL2', 'currentBeforeL3']);
+  if (amps !== null) chips.push(`Amps <b>${amps}A</b>`);
+  const volts = avgNum(e, ['voltageAfterL1L2', 'voltageAfterL1L3', 'voltageAfterL2L3']) ?? avgNum(e, ['voltageBeforeL1L2', 'voltageBeforeL1L3', 'voltageBeforeL2L3']);
+  if (volts !== null) chips.push(`Volts <b>${volts}V</b>`);
   if (e.performedBy) chips.push(`By <b>${escapeHtml(e.performedBy)}</b>`);
-  return chips.map(c => `<span class="reading-chip">${c}</span>`).join('');
+  const imbal = phaseImbalance(e);
+  return chips.map(c => `<span class="reading-chip">${c}</span>`).join('') +
+    imbal.map(f => `<span class="reading-chip" style="color:${f.level === 'critical' ? 'var(--red)' : 'var(--amber)'};font-weight:600;">&#9888; ${f.kind} imbalance ${f.pct}%</span>`).join('');
 }
 
 // ---------- log modal ----------
