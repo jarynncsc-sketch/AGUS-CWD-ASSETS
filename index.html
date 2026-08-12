@@ -974,7 +974,9 @@ function openUserModal(row) {
 // ===========================================================================
 let categoryChartInstance = null;
 let readingsChartInstance = null;
+let energyChartInstance = null;
 let lastReadingsLog = null; // remembered so a theme switch can re-render the currently open log's chart
+let lastEnergyLog = null;   // remembered so a theme switch can re-render the currently open energy audit chart
 
 const CHART_FONT = { family: "'IBM Plex Mono', monospace", size: 11 };
 
@@ -1117,6 +1119,174 @@ function renderReadingsChart(log) {
 function refreshChartsForTheme() {
   if (categoryChartInstance) renderCategoryChart();
   if (readingsChartInstance && lastReadingsLog) renderReadingsChart(lastReadingsLog);
+  if (energyChartInstance && lastEnergyLog) renderEnergyChart(lastEnergyLog);
+}
+
+// ---------- energy audit tab ----------
+function renderEnergyTab(box) {
+  const a = state.currentAsset;
+  const pfDefault = 0.85;
+  const pfInput = `<input type="number" min="0.5" max="1" step="0.01" value="${pfDefault}" id="energyPfInput" style="width:80px;padding:6px 8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;" onchange="recomputeEnergyAudit()">`;
+
+  let html = `<p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">Energy audit computed from maintenance readings — electrical load (√3·V·I·PF), hydraulic output (9.81·Q·Head), wire-to-water efficiency and specific energy.</p>`;
+
+  const rows = computeEnergyRows(a.log);
+  const latest = rows.filter(r => r.elecKw !== null).slice(0, 1)[0] || null;
+  const hydLatest = rows.filter(r => r.hydKw !== null).slice(0, 1)[0] || null;
+  const effLatest = rows.filter(r => r.eff !== null).slice(0, 1)[0] || null;
+  const effAvg = avgVal(rows.map(r => r.eff).filter(v => v !== null));
+  const secAvg = avgVal(rows.map(r => r.specific).filter(v => v !== null));
+  const peakKw = rows.filter(r => r.elecKw !== null).reduce((m, r) => Math.max(m, r.elecKw), 0) || null;
+
+  function fmt(v, d = 2, unit = '') {
+    return v === null || v === undefined ? '<span style="color:var(--text-faint);">—</span>' : v.toFixed(d) + unit;
+  }
+  function stat(label, val, sub) {
+    return `<div class="chart-card"><h4>${escapeHtml(label)}</h4>
+      <div style="font-family:var(--mono);font-size:24px;font-weight:700;color:var(--teal);">${val}</div>
+      ${sub ? `<div style="font-size:11.5px;color:var(--text-faint);margin-top:4px;">${sub}</div>` : ''}</div>`;
+  }
+
+  html += `<div class="stats-row">
+    ${stat('Latest electrical load', fmt(latest ? latest.elecKw : null, 2, ' kW'), latest ? `V ${fmt(latest.volts, 0)}·A ${fmt(latest.amps, 1)}·PF ${latest.pf.toFixed(2)}` : 'No current/voltage readings yet')}
+    ${stat('Latest hydraulic power', fmt(hydLatest ? hydLatest.hydKw : null, 2, ' kW'), hydLatest ? `Q ${fmt(hydLatest.lps, 1, ' L/s')}·Head ${fmt(hydLatest.head, 1, ' m')}` : 'Needs discharge + head')}
+    ${stat('Latest efficiency', fmt(effLatest ? effLatest.eff : null, 1, ' %'), 'Wire-to-water')}
+    ${stat('Avg specific energy', fmt(secAvg, 2, ' kWh/m³'), `${fmt(peakKw, 2, ' kW')} peak electrical`)}
+  </div>`;
+
+  html += `<div class="chart-card" style="margin-bottom:16px;">
+    <h4>Energy over time · electrical vs hydraulic kW + efficiency</h4>
+    <div class="chart-wrap tall"><canvas id="energyChart"></canvas></div>
+  </div>`;
+
+  const chart = rows.filter(r => r.elecKw !== null || r.hydKw !== null || r.eff !== null);
+  if (chart.length) {
+    html += `<div class="log-toolbar">
+      <div class="mono" style="font-size:12px;color:var(--text-faint);">${rows.length} audit point${rows.length === 1 ? '' : 's'} · most recent first · power factor</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-muted);">Assumed PF ${pfInput}</label>
+    </div>`;
+  }
+
+  if (!rows.length) {
+    html += `<div class="empty-state"><h3>Nothing to audit</h3><p>Maintenance entries have no current, voltage, flow or head readings.</p></div>`;
+    box.innerHTML = html;
+    return;
+  }
+
+  html += `<div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);">
+    <table class="summary-table"><thead><tr>
+      <th>Date</th><th>V (L-L)</th><th>A</th><th>PF</th><th>Electrical kW</th><th>Q (L/s)</th><th>Head (m)</th><th>Hydraulic kW</th><th>Eff %</th><th>kWh/m³</th>
+    </tr></thead><tbody>`;
+  rows.forEach(r => {
+    html += `<tr>
+      <td class="mono">${escapeHtml(r.date || '—')}</td>
+      <td class="mono">${fmt(r.volts, 0)}</td>
+      <td class="mono">${fmt(r.amps, 1)}</td>
+      <td class="mono">${r.elecKw === null ? '<span style="color:var(--text-faint);">—</span>' : r.pf.toFixed(2)}</td>
+      <td class="mono">${fmt(r.elecKw, 2)}</td>
+      <td class="mono">${fmt(r.lps, 1)}</td>
+      <td class="mono">${fmt(r.head, 1)}</td>
+      <td class="mono">${fmt(r.hydKw, 2)}</td>
+      <td class="mono">${fmt(r.eff, 1)}</td>
+      <td class="mono">${fmt(r.specific, 2)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  html += `<p style="font-size:11.5px;color:var(--text-faint);margin-top:12px;">Electrical kW = √3·V·I·PF / 1000 · Head from pressure (PSI×0.703) or static−pumping WL · Hydraulic kW = 9.81·Q·H / 1000 · kWh/m³ = electrical kW ÷ (L/s×3.6)</p>`;
+
+  box.innerHTML = html;
+  if (chart.length) renderEnergyChart(rows);
+}
+
+function computeEnergyRows(log) {
+  return [...log].filter(e => {
+    return e.currentAfterL1 !== '' || e.currentBeforeL1 !== '' || e.voltageAfterL1L2 !== '' || e.voltageBeforeL1L2 !== '' ||
+      e.dischargeLps !== '' || e.pressurePsi !== '' || e.staticWl !== '' || e.pumpingWl !== '';
+  }).sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(e => {
+    const pf = energyPfValue();
+    const amps = avgAmps(e);
+    const volts = avgVolts(e);
+    const lps = numOrNull(e.dischargeLps);
+    let head = null;
+    if (e.pressurePsi !== '' && !isNaN(parseFloat(e.pressurePsi))) head = parseFloat(e.pressurePsi) * 0.703;
+    else if ((e.staticWl !== '' && !isNaN(parseFloat(e.staticWl))) && (e.pumpingWl !== '' && !isNaN(parseFloat(e.pumpingWl)))) head = parseFloat(e.staticWl) - parseFloat(e.pumpingWl);
+    const elecKw = (volts !== null && amps !== null) ? Math.round(Math.sqrt(3) * volts * amps * pf / 1000 * 100) / 100 : null;
+    const hydKw = (lps !== null && head !== null) ? Math.round(9.81 * (lps / 1000) * head * 100) / 100 : null;
+    const eff = (elecKw !== null && hydKw !== null) ? Math.round(hydKw / elecKw * 1000) / 10 : null;
+    const specific = (elecKw !== null && lps !== null && lps > 0) ? Math.round(elecKw / (lps * 3.6) * 100) / 100 : null;
+    return { date: e.date, volts, amps, pf, lps, head, elecKw, hydKw, eff, specific };
+  });
+}
+
+function energyPfValue() {
+  const el = document.getElementById('energyPfInput');
+  const v = el ? parseFloat(el.value) : 0.85;
+  return (!isNaN(v) && v > 0) ? v : 0.85;
+}
+
+function recomputeEnergyAudit() {
+  const box = document.getElementById('tabContent');
+  if (state.currentTab === 'energy' && box) renderEnergyTab(box);
+}
+
+function avgAmps(e) {
+  return avgNum(e, ['currentAfterL1', 'currentAfterL2', 'currentAfterL3']) ?? avgNum(e, ['currentBeforeL1', 'currentBeforeL2', 'currentBeforeL3']);
+}
+
+function avgVolts(e) {
+  return avgNum(e, ['voltageAfterL1L2', 'voltageAfterL1L3', 'voltageAfterL2L3']) ?? avgNum(e, ['voltageBeforeL1L2', 'voltageBeforeL1L3', 'voltageBeforeL2L3']);
+}
+
+function numOrNull(v) {
+  return (v === '' || v === null || v === undefined || isNaN(parseFloat(v))) ? null : parseFloat(v);
+}
+
+function avgVal(vals) {
+  if (!vals.length) return null;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100;
+}
+
+function renderEnergyChart(rows) {
+  const canvas = document.getElementById('energyChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  lastEnergyLog = rows;
+
+  if (energyChartInstance) energyChartInstance.destroy();
+
+  const tickColor = themeColor('--text-faint', '#8fafb5');
+  const gridColor = themeColor('--border-soft', '#e6f0f1');
+  const teal = themeColor('--teal', '#0a7f93');
+  const amber = themeColor('--amber', '#c9821e');
+  const green = themeColor('--green', '#2f9e6f');
+
+  const chronological = [...rows].reverse(); // rows are most-recent-first; reverse for x-axis
+  const labels = chronological.map(r => r.date || '');
+  const effData = chronological.map(r => r.eff);
+
+  energyChartInstance = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Electrical kW', data: chronological.map(r => r.elecKw), borderColor: teal, backgroundColor: teal + '22', tension: 0.3, spanGaps: true, yAxisID: 'y' },
+        { label: 'Hydraulic kW', data: chronological.map(r => r.hydKw), borderColor: green, backgroundColor: green + '22', borderDash: [5, 4], tension: 0.3, spanGaps: true, yAxisID: 'y' },
+        { label: 'Efficiency %', data: effData, borderColor: amber, backgroundColor: amber + '22', tension: 0.3, spanGaps: true, yAxisID: 'y1' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: themeColor('--text-muted', '#57777d'), font: CHART_FONT, boxWidth: 10, padding: 12, usePointStyle: true } },
+        tooltip: { titleFont: CHART_FONT, bodyFont: CHART_FONT }
+      },
+      scales: {
+        x: { ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor } },
+        y: { position: 'left', ticks: { color: tickColor, font: CHART_FONT }, grid: { color: gridColor }, title: { display: true, text: 'kW', color: tickColor, font: CHART_FONT } },
+        y1: { position: 'right', ticks: { color: tickColor, font: CHART_FONT }, grid: { display: false }, title: { display: true, text: 'Efficiency %', color: tickColor, font: CHART_FONT } }
+      }
+    }
+  });
 }
 
 // ===========================================================================
@@ -1206,6 +1376,7 @@ function renderAssetDetail() {
     <div class="tabbar">
       <button class="tabbtn ${state.currentTab === 'specs' ? 'active' : ''}" onclick="switchTab('specs')">Equipment Specs</button>
       <button class="tabbtn ${state.currentTab === 'log' ? 'active' : ''}" onclick="switchTab('log')">Maintenance History <span class="mono" style="opacity:.6;">(${a.log.length})</span></button>
+      <button class="tabbtn ${state.currentTab === 'energy' ? 'active' : ''}" onclick="switchTab('energy')">Energy Audit</button>
     </div>
     <div id="tabContent"></div>
   `;
@@ -1214,14 +1385,15 @@ function renderAssetDetail() {
 
 function switchTab(tab) {
   state.currentTab = tab;
-  document.querySelectorAll('.tabbtn').forEach((b, i) => b.classList.toggle('active', (i === 0 && tab === 'specs') || (i === 1 && tab === 'log')));
+  document.querySelectorAll('.tabbtn').forEach((b, i) => b.classList.toggle('active', (i === 0 && tab === 'specs') || (i === 1 && tab === 'log') || (i === 2 && tab === 'energy')));
   renderTabContent();
 }
 
 function renderTabContent() {
   const box = document.getElementById('tabContent');
   if (state.currentTab === 'specs') renderSpecsTab(box);
-  else renderLogTab(box);
+  else if (state.currentTab === 'log') renderLogTab(box);
+  else renderEnergyTab(box);
 }
 
 // ---------- specs tab ----------
